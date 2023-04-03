@@ -1,2 +1,4 @@
-Combined.py
+__pycache__
 *.txt
+*.dat
+*.npz

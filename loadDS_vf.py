@@ -75,10 +75,10 @@ def genData():
     d0[:,2] = Y_lim[0] + d0[:,2]*(Y_lim[1]-Y_lim[0])
     d0[:,3] = p_lim[0] + d0[:,3]*(p_lim[1]-p_lim[0])
     d0[:,4] = T_lim[0] + d0[:,4]*(T_lim[1]-T_lim[0])
-    np.savetxt(dataFile, d0)
+    # np.savetxt(dataFile, d0)
 
 np.random.seed(15814)
-dataFile = 'rand.txt'
+dataFile = 'PTEdata.dat'
 if (~os.path.isfile(dataFile)): genData()
 main()
 #y=data_01[data_01[:,2].argsort()] # Sort data
