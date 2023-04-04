@@ -25,8 +25,6 @@ class FFNet(nn.Module):
     def forward(self, x):
         for lyr in self.layers:
             x = self.act_func(lyr(x))
-        #x = self.act_func(self.fc1(x)) # F.relu(self.fc1(x))
-        #x = self.act_func(self.fc2(x)) # F.relu(self.fc2(x))
         x = self.final_layer(x)
         
         return x 
@@ -80,26 +78,28 @@ def renorm_01(data, dataMin, dataMax):
 def renorm_gaussian(data, dataAvg, dataStd):
     return dataMean+3.0*dataStd*data
 
-def main():
-    data_file = "PTEdata.dat"
+def save_model(epoch, net, optimizer, train_loss, freq, PATH):
+    if ( (epoch % freq == 0) or (epoch == nEpoch-1) ): 
+           T.save({
+               'epoch': epoch,
+               'model_state_dict': net.state_dict(),
+               'optimizer_state_dict': optimizer.state_dict(),
+               'loss': train_loss,
+               }, PATH)
+
+def train():
     total_ds = Dataset(data_file)
     # Find total number of samples
     total_samples = total_ds.__len__()
     sample_ind = list(range(total_samples))
     train_lst = sample_ind[:int(0.6*total_samples)]
     val_lst = sample_ind[int(0.6*total_samples):int(0.8*total_samples)]
-    test_lst = sample_ind[int(0.8*total_samples):]
    
     train_ds = T.utils.data.Subset(total_ds, train_lst)
     train_ldr = T.utils.data.DataLoader(train_ds, batch_size=128, shuffle=False)
     val_ds = T.utils.data.Subset(total_ds, val_lst)
     val_ldr = T.utils.data.DataLoader(val_ds, batch_size=128, shuffle=False)    
-    test_ds = T.utils.data.Subset(total_ds, test_lst)
-    test_ldr = T.utils.data.DataLoader(test_ds, batch_size=128, shuffle=False)
     
-    test_loss = 0
-    n_layers = 3; lyr_wdt = 100; act_func = F.relu
-
     net = FFNet(n_layers, lyr_wdt, act_func).to(device)
     optimizer = T.optim.Adam(net.parameters(), lr=0.001, \
                              betas=(0.9, 0.999), eps=1e-08, \
@@ -107,7 +107,7 @@ def main():
     criterion = nn.MSELoss() #Loss function
 
     #y=data[data[:,0].argsort()] # Sort data
-    nEpoch = 100
+    nEpoch = 2
     loss_arr = np.zeros((nEpoch,3))
     for epoch in range(nEpoch):
         loss = 0; loss_per_epoch = 0
@@ -125,16 +125,12 @@ def main():
             jj+=1
         train_loss = loss_per_epoch/jj
 
-        #saving model should be here
-        #if ( (epoch % 20 == 0) or (epoch == nEpoch-1) ): 
-        #    PATH = "./model/save_" + str(epoch) + ".pt"
-        #    T.save({
-        #        'epoch': epoch,
-        #        'model_state_dict': net.state_dict(),
-        #        'optimizer_state_dict': optimizer.state_dict(),
-        #        'loss': train_loss,
-        #        }, PATH)
-        
+        #saving model
+        if (saveModel):
+            PATH = "./model/save_" + str('%05d' % epoch) + ".pt"
+            freq = 1
+            save_model(epoch, net, optimizer, train_loss, freq, PATH)
+
         # Validation process starts here:
         loss = 0; loss_per_epoch = 0
         jj=0
@@ -152,9 +148,32 @@ def main():
         loss_arr[epoch,2] = val_loss
 
         print("Epoch=%d: Train loss=%7.6E: Val loss=%7.6E" % (epoch, train_loss, val_loss))
-        # print("Epoch=%d: Train loss=%7.6E" % (epoch, train_loss))
 
-    # np.savetxt('loss.txt', loss_arr, header='Epoch Train_loss Validate_loss')
+    np.savetxt('loss.txt', loss_arr, header='Epoch Train_loss Validate_loss')
+    
+def test():
+    total_ds = Dataset(data_file)
+    # Find total number of samples
+    total_samples = total_ds.__len__()
+    sample_ind = list(range(total_samples))
+    test_lst = sample_ind[int(0.8*total_samples):]
+   
+    test_ds = T.utils.data.Subset(total_ds, test_lst)
+    test_ldr = T.utils.data.DataLoader(test_ds, batch_size=128, shuffle=False)
+    
+    test_loss = 0
+    epoch = 1999
+
+    net = FFNet(n_layers, lyr_wdt, act_func).to(device)   
+    optimizer = T.optim.Adam(net.parameters(), lr=0.001, \
+                             betas=(0.9, 0.999), eps=1e-08, \
+                             weight_decay=0, amsgrad=False)
+    
+    # Load model
+    PATH = "./model/save_" + str('%05d' % epoch) + ".pt"
+    chkpoint = T.load(PATH)
+    net.load_state_dict(chkpoint['model_state_dict'])
+    optimizer.load_state_dict(chkpoint['optimizer_state_dict'])
     
     #testing loop
     jj = 0
@@ -181,18 +200,18 @@ def main():
     outputs_np = np.concatenate(outputs_lst,axis=0)
     predictions_np = np.concatenate(predictions_lst,axis=0)
 
-    num_val_p = np.sum((outputs_np[:,0]-predictions_np[:,0])**2)
-    den_val_p = np.sum((outputs_np[:,0]-np.mean(outputs_np[:,0]))**2)
+    num_val_p = np.sum((outputs_np-predictions_np)**2, axis=0)
+    den_val_p = np.sum((outputs_np-np.mean(outputs_np, axis=0))**2, axis=0)
+    Rsq = 1 - (num_val_p/den_val_p)
 
-    print(1 - (num_val_p/den_val_p)) 
+    pred_file = 'pred_ep'+str(epoch)+'.dat'
+    np.savetxt(pred_file, np.concatenate((inputs_np,outputs_np,predictions_np), axis=1))
+    print('Testing R-square P, T: %4.3f, %4.3f' % (Rsq[0], Rsq[1])) 
 
-    #test_loss += criterion(net_out, Y.float())
-    #jj += 1
-        
-# #    test_loss /= len(test_ldr.dataset)
-#     test_loss /= jj
-#     print("Test loss: %7.6E" % test_loss)
- 
-main()
-            
-            
+data_file = "PTEdata.dat"
+n_layers = 3; lyr_wdt = 100; act_func = F.relu
+nEpoch = 2000
+saveModel = 1
+
+train()
+test()
